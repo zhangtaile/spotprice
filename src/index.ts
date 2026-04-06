@@ -82,18 +82,16 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 先找标题，再找附近的 Last Update
+	// 1. 提取时间 - 遍历标题出现的位置，寻找最近的 tab_time 标签
 	const extractTime = (fullHtml: string, title: string) => {
-		const startIdx = fullHtml.indexOf(title);
-		if (startIdx === -1) return "Unknown";
-
-		// 从标题位置开始，往后找 1000 个字符
-		const lookAhead = fullHtml.substring(startIdx, startIdx + 1000);
-		// 匹配 Last Update 或 LastUpdate，捕获其后的内容直到 ( 或 <
-		const match = lookAhead.match(/Last\s*Update\s*:\s*([^\(<]+)/i);
-		
-		if (match) {
-			return match[1].replace(/\s+/g, " ").trim();
+		const parts = fullHtml.split(title);
+		// 跳过第一个 part (标题前的部分)，从每一个标题后的片段中寻找
+		for (let i = 1; i < parts.length; i++) {
+			const segment = parts[i].substring(0, 1000); // 只看标题后 1000 字符
+			const match = segment.match(/class="tab_time">Last\s*Update\s*:\s*([^<\(]+)/i);
+			if (match) {
+				return match[1].replace(/\s+/g, " ").trim();
+			}
 		}
 		return "Unknown";
 	};
