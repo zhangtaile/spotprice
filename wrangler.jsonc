@@ -13,6 +13,13 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "spotprice_db",
+			"database_name": "spotprice-db",
+			"database_id": "7adf106e-6d79-4282-9847-a74873174207"
+		}
 	]
 	/**
 	 * Smart Placement
