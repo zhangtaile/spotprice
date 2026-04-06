@@ -20,7 +20,12 @@
 			"database_name": "spotprice-db",
 			"database_id": "7adf106e-6d79-4282-9847-a74873174207"
 		}
-	]
+	],
+	"triggers": {
+		"crons": [
+			"0 */12 * * *"
+		]
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
