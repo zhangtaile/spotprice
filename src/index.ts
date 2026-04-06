@@ -21,6 +21,15 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
+		// 路由: 调试原始 HTML (找出正则失效的原因)
+		if (url.pathname === "/debug-html") {
+			const response = await fetch("https://www.dramexchange.com/", {
+				headers: { "User-Agent": "Mozilla/5.0" },
+			});
+			const html = await response.text();
+			return new Response(html, { headers: { "Content-Type": "text/html" } });
+		}
+
 		// 路由 1: 仅抓取不存库 (测试用)
 		if (url.pathname === "/test-scrape") {
 			try {
