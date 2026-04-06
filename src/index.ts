@@ -73,16 +73,18 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 使用更精确的逻辑
-	// 匹配格式如: Apr.3 2026 18:10 或 Mar.30 2026 14:40
-	const timeRegex = /Last Update:\s*([A-Za-z]{3}\.?\s*\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2})/g;
+	// 1. 提取时间 - 使用分段 + 灵活正则
+	// 匹配格式如: Apr.3 2026 18:10 (忽略点号和空格的细微差异)
+	const extractTime = (section: string) => {
+		const match = section.match(/Last Update:\s*([^<(]+)/i);
+		return match ? match[1].trim() : "Unknown";
+	};
 	
-	// 分段寻找，避免交叉匹配
 	const dramSection = html.split("Wafer Spot Price")[0];
 	const waferSection = html.includes("Wafer Spot Price") ? html.split("Wafer Spot Price")[1] : "";
 
-	const dramUpdateTime = (dramSection.match(/DRAM Spot Price.*?Last Update:\s*([A-Za-z]{3}\.?\s*\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2})/s)?.[1] || "Unknown").trim();
-	const waferUpdateTime = (waferSection.match(/Last Update:\s*([A-Za-z]{3}\.?\s*\d{1,2}\s+\d{4}\s+\d{1,2}:\d{2})/s)?.[1] || "Unknown").trim();
+	const dramUpdateTime = extractTime(dramSection);
+	const waferUpdateTime = extractTime(waferSection);
 
 	const targets = [
 		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", refTime: dramUpdateTime, regex: /DDR5 16Gb \(2Gx8\) 4800\/5600.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
