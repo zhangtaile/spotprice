@@ -73,18 +73,19 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 使用分段 + 灵活正则
-	// 匹配格式如: Apr.3 2026 18:10 (忽略点号和空格的细微差异)
-	const extractTime = (section: string) => {
-		const match = section.match(/Last Update:\s*([^<(]+)/i);
+	// 1. 提取时间 - 兼容各种空格缺失的情况
+	const extractTime = (section: string, title: string) => {
+		// 匹配 Last Update: 或 LastUpdate: 后面直到 (GMT+8) 之前的内容
+		const regex = new RegExp(title + ".*?Last\\s*Update:\\s*([^\\(]+)", "i");
+		const match = section.match(regex);
 		return match ? match[1].trim() : "Unknown";
 	};
 	
 	const dramSection = html.split("Wafer Spot Price")[0];
 	const waferSection = html.includes("Wafer Spot Price") ? html.split("Wafer Spot Price")[1] : "";
 
-	const dramUpdateTime = extractTime(dramSection);
-	const waferUpdateTime = extractTime(waferSection);
+	const dramUpdateTime = extractTime(dramSection, "DRAM Spot Price");
+	const waferUpdateTime = extractTime(waferSection, "Wafer Spot Price");
 
 	const targets = [
 		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", refTime: dramUpdateTime, regex: /DDR5 16Gb \(2Gx8\) 4800\/5600.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
