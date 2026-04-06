@@ -82,12 +82,16 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 兼容各种空格缺失的情况
+	// 1. 提取时间 - 兼容各种空格、换行和 HTML 标签
 	const extractTime = (section: string, title: string) => {
-		// 匹配 Last Update: 或 LastUpdate: 后面直到 (GMT+8) 之前的内容
-		const regex = new RegExp(title + ".*?Last\\s*Update:\\s*([^\\(]+)", "i");
+		// 'is' 标志：i = 忽略大小写, s = 允许 . 匹配换行符
+		const regex = new RegExp(title + ".*?Last\\s*Update\\s*:\\s*([^\\(<]+)", "is");
 		const match = section.match(regex);
-		return match ? match[1].trim() : "Unknown";
+		if (match) {
+			// 清理抓取到的字符串：去掉换行、多余空格，并将多个连续空格合并为一个
+			return match[1].replace(/\s+/g, " ").trim();
+		}
+		return "Unknown";
 	};
 	
 	const dramSection = html.split("Wafer Spot Price")[0];
