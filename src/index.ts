@@ -55,7 +55,33 @@ export default {
 			}
 		}
 
-		return new Response("SpotPrice Worker is running. Visit /test-scrape or /scrape-and-save");
+		// 路由 3: 获取最新报价 (API)
+		if (url.pathname === "/api/latest") {
+			const { results } = await env.spotprice_db.prepare(`
+				SELECT * FROM (
+					SELECT *, ROW_NUMBER() OVER (PARTITION BY item_name ORDER BY ref_time DESC) as rn
+					FROM spot_prices
+				) WHERE rn = 1
+			`).all();
+			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
+		}
+
+		// 路由 4: 获取历史走势 (API)
+		// 示例: /api/history?item=DDR4 16Gb (2Gx8) 3200
+		if (url.pathname === "/api/history") {
+			const itemName = url.searchParams.get("item");
+			if (!itemName) return new Response("Missing item parameter", { status: 400 });
+
+			const { results } = await env.spotprice_db.prepare(`
+				SELECT * FROM spot_prices 
+				WHERE item_name = ? 
+				ORDER BY ref_time ASC 
+				LIMIT 30
+			`).bind(itemName).all();
+			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
+		}
+
+		return new Response("SpotPrice Worker is running. Visit /test-scrape, /scrape-and-save, or /api/latest");
 	},
 
 	// 处理定时任务 (Cron Triggers)
