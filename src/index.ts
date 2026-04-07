@@ -30,6 +30,11 @@ export default {
 			return new Response(html, { headers: { "Content-Type": "text/html" } });
 		}
 
+		// 路由 0: Dashboard 可视化界面 (根路径)
+		if (url.pathname === "/" || url.pathname === "/dashboard") {
+			return new Response(renderDashboard(), { headers: { "Content-Type": "text/html" } });
+		}
+
 		// 路由 1: 仅抓取不存库 (测试用)
 		if (url.pathname === "/test-scrape") {
 			try {
@@ -67,21 +72,23 @@ export default {
 		}
 
 		// 路由 4: 获取历史走势 (API)
-		// 示例: /api/history?item=DDR4 16Gb (2Gx8) 3200
 		if (url.pathname === "/api/history") {
 			const itemName = url.searchParams.get("item");
 			if (!itemName) return new Response("Missing item parameter", { status: 400 });
 
 			const { results } = await env.spotprice_db.prepare(`
-				SELECT * FROM spot_prices 
-				WHERE item_name = ? 
-				ORDER BY ref_time ASC 
-				LIMIT 30
+				SELECT * FROM (
+					SELECT *, ROW_NUMBER() OVER (ORDER BY ref_time DESC) as seq
+					FROM spot_prices 
+					WHERE item_name = ?
+				) 
+				WHERE seq <= 30
+				ORDER BY ref_time ASC
 			`).bind(itemName).all();
 			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
 		}
 
-		return new Response("SpotPrice Worker is running. Visit /test-scrape, /scrape-and-save, or /api/latest");
+		return new Response("SpotPrice Worker is running.");
 	},
 
 	// 处理定时任务 (Cron Triggers)
@@ -108,12 +115,11 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 遍历标题出现的位置，寻找最近的 tab_time 标签
+	// 1. 提取时间 - 先找标题，再找附近的 Last Update
 	const extractTime = (fullHtml: string, title: string) => {
 		const parts = fullHtml.split(title);
-		// 跳过第一个 part (标题前的部分)，从每一个标题后的片段中寻找
 		for (let i = 1; i < parts.length; i++) {
-			const segment = parts[i].substring(0, 1000); // 只看标题后 1000 字符
+			const segment = parts[i].substring(0, 1000); 
 			const match = segment.match(/class="tab_time">Last\s*Update\s*:\s*([^<\(]+)/i);
 			if (match) {
 				return match[1].replace(/\s+/g, " ").trim();
@@ -165,7 +171,84 @@ async function savePricesToDB(env: Env, prices: SpotPrice[]) {
 
 	const results = await env.spotprice_db.batch(batch);
 	const rowsInserted = results.reduce((acc, r) => acc + (r.meta.changes || 0), 0);
-	
-	console.log(`Saved ${rowsInserted} new records to D1.`);
 	return { rowsInserted };
+}
+
+/**
+ * 渲染 Dashboard HTML 页面
+ */
+function renderDashboard() {
+  return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpotPrice Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f1f5f9;
+            --primary: #38bdf8;
+            --danger: #ef4444;
+            --success: #22c55e;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0; padding: 20px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        header { margin-bottom: 30px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .card { background: var(--card-bg); padding: 15px; border-radius: 12px; border: 1px solid #334155; }
+        .card .title { font-size: 13px; color: #94a3b8; margin-bottom: 5px; }
+        .card .price { font-size: 24px; font-weight: bold; }
+        .change.down { color: var(--danger); }
+        .change.up { color: var(--success); }
+        .chart-container { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid #334155; height: 450px; }
+        footer { text-align: center; font-size: 11px; color: #64748b; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header><h1>SpotPrice Dashboard 📊</h1></header>
+        <div id="latest-grid" class="grid"></div>
+        <div class="chart-container"><div id="main-chart" style="width:100%;height:100%;"></div></div>
+        <footer>DRAMeXchange | Cloudflare Workers + D1</footer>
+    </div>
+    <script>
+        const ITEMS = ["DDR5 16Gb (2Gx8) 4800/5600", "DDR4 16Gb (2Gx8) 3200", "DDR4 8Gb (1Gx8) 3200", "512Gb TLC"];
+        async function init() {
+            const latest = await (await fetch('/api/latest')).json();
+            const grid = document.getElementById('latest-grid');
+            latest.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = \`<div class="title">\${item.item_name}</div><div class="price">$\${item.session_average.toFixed(3)}</div><div class="change \${item.session_change.includes('-')?'down':'up'}">\${item.session_change}</div>\`;
+                grid.appendChild(div);
+            });
+            const myChart = echarts.init(document.getElementById('main-chart'), 'dark');
+            const series = []; let xData = [];
+            for (const name of ITEMS) {
+                const data = await (await fetch('/api/history?item=' + encodeURIComponent(name))).json();
+                if (xData.length === 0) xData = data.map(d => d.ref_time.split(' 202')[0]);
+                series.push({ name, type: 'line', smooth: true, data: data.map(d => d.session_average) });
+            }
+            myChart.setOption({
+                backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
+                legend: { top: 0, textStyle: { color: '#ccc' } },
+                xAxis: { type: 'category', data: xData },
+                yAxis: { type: 'value', scale: true },
+                series
+            });
+        }
+        init();
+    </script>
+</body>
+</html>
+  \`;
 }
