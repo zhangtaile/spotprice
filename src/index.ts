@@ -250,5 +250,5 @@ function renderDashboard() {
     </script>
 </body>
 </html>
-  \`;
+  `;
 }
