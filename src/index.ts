@@ -17,11 +17,9 @@ export interface SpotPrice {
 }
 
 export default {
-	// 处理 HTTP 请求 (用于手动触发和后续的 Dashboard)
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// 路由: 调试原始 HTML (找出正则失效的原因)
 		if (url.pathname === "/debug-html") {
 			const response = await fetch("https://www.dramexchange.com/", {
 				headers: { "User-Agent": "Mozilla/5.0" },
@@ -30,12 +28,10 @@ export default {
 			return new Response(html, { headers: { "Content-Type": "text/html" } });
 		}
 
-		// 路由 0: Dashboard 可视化界面 (根路径)
 		if (url.pathname === "/" || url.pathname === "/dashboard") {
 			return new Response(renderDashboard(), { headers: { "Content-Type": "text/html" } });
 		}
 
-		// 路由 1: 仅抓取不存库 (测试用)
 		if (url.pathname === "/test-scrape") {
 			try {
 				const data = await scrapePrices();
@@ -47,7 +43,6 @@ export default {
 			}
 		}
 
-		// 路由 2: 抓取并存入数据库 (手动触发验证)
 		if (url.pathname === "/scrape-and-save") {
 			try {
 				const prices = await scrapePrices();
@@ -60,7 +55,6 @@ export default {
 			}
 		}
 
-		// 路由 3: 获取最新报价 (API)
 		if (url.pathname === "/api/latest") {
 			const { results } = await env.spotprice_db.prepare(`
 				SELECT * FROM (
@@ -71,7 +65,6 @@ export default {
 			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
 		}
 
-		// 路由 4: 获取历史走势 (API)
 		if (url.pathname === "/api/history") {
 			const itemName = url.searchParams.get("item");
 			if (!itemName) return new Response("Missing item parameter", { status: 400 });
@@ -91,39 +84,29 @@ export default {
 		return new Response("SpotPrice Worker is running.");
 	},
 
-	// 处理定时任务 (Cron Triggers)
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		console.log(`Running scheduled scrape at ${new Date().toISOString()}`);
 		ctx.waitUntil(
 			scrapePrices().then(prices => savePricesToDB(env, prices))
 		);
 	},
 };
 
-/**
- * 抓取 DRAMeXchange 价格逻辑
- */
 async function scrapePrices(): Promise<SpotPrice[]> {
 	const response = await fetch("https://www.dramexchange.com/", {
 		headers: {
 			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		},
 	});
-
 	if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-
 	const html = await response.text();
 	const results: SpotPrice[] = [];
 
-	// 1. 提取时间 - 先找标题，再找附近的 Last Update
 	const extractTime = (fullHtml: string, title: string) => {
 		const parts = fullHtml.split(title);
 		for (let i = 1; i < parts.length; i++) {
 			const segment = parts[i].substring(0, 1000); 
 			const match = segment.match(/class="tab_time">Last\s*Update\s*:\s*([^<\(]+)/i);
-			if (match) {
-				return match[1].replace(/\s+/g, " ").trim();
-			}
+			if (match) return match[1].replace(/\s+/g, " ").trim();
 		}
 		return "Unknown";
 	};
@@ -132,22 +115,19 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	const waferUpdateTime = extractTime(html, "Wafer Spot Price");
 
 	const targets = [
-		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", refTime: dramUpdateTime, regex: /DDR5 16Gb \(2Gx8\) 4800\/5600.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "DDR4 16Gb (2Gx8) 3200", group: "DRAM", refTime: dramUpdateTime, regex: /DDR4 16Gb \(2Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "DDR4 8Gb (1Gx8) 3200", group: "DRAM", refTime: dramUpdateTime, regex: /DDR4 8Gb \(1Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "512Gb TLC", group: "NAND", refTime: waferUpdateTime, regex: /512Gb TLC.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
+		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR5 16Gb \(2Gx8\) 4800\/5600.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
+		{ name: "DDR4 16Gb (2Gx8) 3200", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR4 16Gb \(2Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
+		{ name: "DDR4 8Gb (1Gx8) 3200", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR4 8Gb \(1Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
+		{ name: "512Gb TLC", group: "NAND", refTime: formatRefTime(waferUpdateTime), regex: /512Gb TLC.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
 	];
 
 	for (const t of targets) {
 		const m = html.match(t.regex);
 		if (m) {
 			results.push({
-				item_name: t.name,
-				item_group: t.group,
-				session_high: parseFloat(m[3]),
-				session_low: parseFloat(m[4]),
-				session_average: parseFloat(m[5]),
-				session_change: m[6].replace(/<[^>]*>/g, "").trim(),
+				item_name: t.name, item_group: t.group,
+				session_high: parseFloat(m[3]), session_low: parseFloat(m[4]),
+				session_average: parseFloat(m[5]), session_change: m[6].replace(/<[^>]*>/g, "").trim(),
 				ref_time: t.refTime,
 			});
 		}
@@ -155,58 +135,44 @@ async function scrapePrices(): Promise<SpotPrice[]> {
 	return results;
 }
 
-/**
- * 将数据存入 D1 数据库
- */
+function formatRefTime(raw: string): string {
+	if (raw === "Unknown") return raw;
+	const months: Record<string, string> = {
+		'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+		'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+	};
+	const m = raw.match(/([A-Za-z]{3})\.?\s*(\d{1,2})\s+(\d{4})\s+(\d{1,2}:\d{2})/);
+	if (m) return `${m[3]}-${months[m[1]] || '01'}-${m[2].padStart(2, '0')} ${m[4]}`;
+	return raw;
+}
+
 async function savePricesToDB(env: Env, prices: SpotPrice[]) {
 	const stmt = env.spotprice_db.prepare(`
 		INSERT OR IGNORE INTO spot_prices 
 		(item_name, item_group, session_average, session_high, session_low, session_change, ref_time)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`);
-
-	const batch = prices.map(p => 
-		stmt.bind(p.item_name, p.item_group, p.session_average, p.session_high, p.session_low, p.session_change, p.ref_time)
-	);
-
+	const batch = prices.map(p => stmt.bind(p.item_name, p.item_group, p.session_average, p.session_high, p.session_low, p.session_change, p.ref_time));
 	const results = await env.spotprice_db.batch(batch);
-	const rowsInserted = results.reduce((acc, r) => acc + (r.meta.changes || 0), 0);
-	return { rowsInserted };
+	return { rowsInserted: results.reduce((acc, r) => acc + (r.meta.changes || 0), 0) };
 }
 
-/**
- * 渲染 Dashboard HTML 页面
- */
 function renderDashboard() {
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SpotPrice Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --text-color: #f1f5f9;
-            --primary: #38bdf8;
-            --danger: #ef4444;
-            --success: #22c55e;
-        }
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0; padding: 20px;
-        }
+        :root { --bg-color: #0f172a; --card-bg: #1e293b; --text-color: #f1f5f9; --primary: #38bdf8; --danger: #ef4444; --success: #22c55e; }
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; }
         header { margin-bottom: 30px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .card { background: var(--card-bg); padding: 15px; border-radius: 12px; border: 1px solid #334155; }
         .card .title { font-size: 13px; color: #94a3b8; margin-bottom: 5px; }
-        .card .price { font-size: 24px; font-weight: bold; }
         .change.down { color: var(--danger); font-size: 13px; font-weight: 500; }
         .change.up { color: var(--success); font-size: 13px; font-weight: 500; }
         .chart-container { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid #334155; height: 350px; margin-bottom: 20px; }
@@ -224,9 +190,7 @@ function renderDashboard() {
     </div>
     <script>
         const ITEMS = ["DDR5 16Gb (2Gx8) 4800/5600", "DDR4 16Gb (2Gx8) 3200", "DDR4 8Gb (1Gx8) 3200", "512Gb TLC"];
-        async function fetchData(name) {
-            return await (await fetch('/api/history?item=' + encodeURIComponent(name))).json();
-        }
+        async function fetchData(name) { return await (await fetch('/api/history?item=' + encodeURIComponent(name))).json(); }
         function createOption(title, series, xData) {
             return {
                 title: { text: title, textStyle: { color: '#94a3b8', fontSize: 14 } },
@@ -244,6 +208,7 @@ function renderDashboard() {
             latest.forEach(item => {
                 const div = document.createElement('div');
                 div.className = 'card';
+                const dispTime = item.ref_time.includes('-') ? item.ref_time.substring(5) : item.ref_time.split(' 202')[0];
                 div.innerHTML = '<div class="title">' + item.item_name + '</div>' +
                     '<div style="display:flex; flex-direction:column; gap:4px;">' +
                         '<div style="font-size:10px; color:#64748b;">AVG</div>' +
@@ -253,25 +218,19 @@ function renderDashboard() {
                     '</div>' +
                     '<div style="display:flex; justify-content:space-between; margin-top:12px;">' +
                         '<div class="change ' + (item.session_change.includes('-')?'down':'up') + '">' + item.session_change + '</div>' +
-                        '<div style="font-size:9px; color:#475569;">' + item.ref_time.split(' 202')[0] + '</div>' +
+                        '<div style="font-size:9px; color:#475569;">' + dispTime + '</div>' +
                     '</div>';
                 grid.appendChild(div);
             });
             const [d5_16, d4_16, d4_8, nand] = await Promise.all(ITEMS.map(fetchData));
-            const xData = d5_16.map(d => d.ref_time.split(' 202')[0]);
+            const formatX = (d) => d.ref_time.includes('-') ? d.ref_time.substring(5) : d.ref_time.split(' 202')[0];
+            const xData = d5_16.map(formatX);
             const c3 = echarts.init(document.getElementById('chart-nand'), 'dark');
-            c3.setOption(createOption('NAND Wafer Trend', [
-                { name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }
-            ], xData));
+            c3.setOption(createOption('NAND Wafer Trend', [{ name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }], xData));
             const c2 = echarts.init(document.getElementById('chart-8g'), 'dark');
-            c2.setOption(createOption('DRAM 8G Trend', [
-                { name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }
-            ], xData));
+            c2.setOption(createOption('DRAM 8G Trend', [{ name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }], xData));
             const c1 = echarts.init(document.getElementById('chart-16g'), 'dark');
-            c1.setOption(createOption('DRAM 16G Trend', [
-                { name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) },
-                { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }
-            ], xData));
+            c1.setOption(createOption('DRAM 16G Trend', [{ name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) }, { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }], xData));
             window.addEventListener('resize', () => { [c1, c2, c3].forEach(c => c.resize()); });
         }
         init();
