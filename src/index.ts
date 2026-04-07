@@ -224,13 +224,26 @@ function renderDashboard() {
             });
             const [d5_16, d4_16, d4_8, nand] = await Promise.all(ITEMS.map(fetchData));
             const formatX = (d) => d.ref_time.includes('-') ? d.ref_time.substring(5) : d.ref_time.split(' 202')[0];
-            const xData = d5_16.map(formatX);
+
+            // 图表 1: NAND (最上方)
             const c3 = echarts.init(document.getElementById('chart-nand'), 'dark');
-            c3.setOption(createOption('NAND Wafer Trend', [{ name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }], xData));
+            c3.setOption(createOption('NAND Wafer Trend', [
+                { name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }
+            ], nand.map(formatX)));
+
+            // 图表 2: 8G DRAM (中间)
             const c2 = echarts.init(document.getElementById('chart-8g'), 'dark');
-            c2.setOption(createOption('DRAM 8G Trend', [{ name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }], xData));
+            c2.setOption(createOption('DRAM 8G Trend', [
+                { name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }
+            ], d4_8.map(formatX)));
+
+            // 图表 3: 16G DRAM (最下方)
             const c1 = echarts.init(document.getElementById('chart-16g'), 'dark');
-            c1.setOption(createOption('DRAM 16G Trend', [{ name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) }, { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }], xData));
+            c1.setOption(createOption('DRAM 16G Trend', [
+                { name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) },
+                { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }
+            ], d5_16.map(formatX)));
+
             window.addEventListener('resize', () => { [c1, c2, c3].forEach(c => c.resize()); });
         }
         init();
