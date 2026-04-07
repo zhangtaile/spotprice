@@ -228,7 +228,19 @@ function renderDashboard() {
             latest.forEach(item => {
                 const div = document.createElement('div');
                 div.className = 'card';
-                div.innerHTML = \`<div class="title">\${item.item_name}</div><div class="price">$\${item.session_average.toFixed(3)}</div><div class="change \${item.session_change.includes('-')?'down':'up'}">\${item.session_change}</div>\`;
+                div.innerHTML = `
+                    <div class="title">${item.item_name}</div>
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <div style="font-size:10px; color:#64748b;">AVG</div>
+                        <div style="font-size:18px; font-weight:bold; color:var(--primary);">$${item.session_average.toFixed(3)}</div>
+                        <div style="font-size:10px; color:#64748b; margin-top:4px;">HIGH</div>
+                        <div style="font-size:14px; color:#94a3b8;">$${item.session_high.toFixed(3)}</div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-top:12px; border-top:1px solid #334155; padding-top:8px;">
+                        <div class="change ${item.session_change.includes('-')?'down':'up'}">${item.session_change}</div>
+                        <div style="font-size:9px; color:#475569;">${item.ref_time.split(' 202')[0]}</div>
+                    </div>
+                `;
                 grid.appendChild(div);
             });
             const myChart = echarts.init(document.getElementById('main-chart'), 'dark');
