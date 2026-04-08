@@ -1,27 +1,20 @@
-/**
- * Cloudflare Worker: SpotPrice Scraper & Dashboard
- */
-
-export interface Env {
-	spotprice_db: D1Database;
-	ENABLE_ADMIN_ROUTES?: string;
-}
-
-export interface SpotPrice {
-	item_name: string;
-	item_group: string;
-	session_average: number;
-	session_high: number;
-	session_low: number;
-	session_change: string;
-	ref_time: string;
-}
+import { Env, SpotPrice } from "./types";
+import { scrapePrices } from "./scraper";
+import { savePricesToDB, getLatestPrices, getPriceHistory } from "./db";
+import { renderDashboard } from "./dashboard";
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+		
+		// Admin Routes Check
 		if (isAdminRoute(url.pathname) && !adminRoutesEnabled(env)) {
 			return new Response("Not Found", { status: 404 });
+		}
+
+		// Routing
+		if (url.pathname === "/") {
+			return new Response(renderDashboard(), { headers: { "Content-Type": "text/html" } });
 		}
 
 		if (url.pathname === "/debug-html") {
@@ -30,10 +23,6 @@ export default {
 			});
 			const html = await response.text();
 			return new Response(html, { headers: { "Content-Type": "text/html" } });
-		}
-
-		if (url.pathname === "/" || url.pathname === "/dashboard") {
-			return new Response(renderDashboard(), { headers: { "Content-Type": "text/html" } });
 		}
 
 		if (url.pathname === "/test-scrape") {
@@ -59,29 +48,29 @@ export default {
 			}
 		}
 
-		if (url.pathname === "/api/latest") {
-			const { results } = await env.spotprice_db.prepare(`
-				SELECT * FROM (
-					SELECT *, ROW_NUMBER() OVER (PARTITION BY item_name ORDER BY ref_time DESC) as rn
-					FROM spot_prices
-				) WHERE rn = 1
-			`).all();
-			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
+		if (url.pathname === "/api/dashboard") {
+			try {
+				const latest = await getLatestPrices(env);
+				const itemNames = Array.from(new Set(latest.map(p => p.item_name)));
+				const historyPromises = itemNames.map(name => getPriceHistory(env, name));
+				const histories = await Promise.all(historyPromises);
+				
+				const historyMap: Record<string, SpotPrice[]> = {};
+				itemNames.forEach((name, i) => {
+					historyMap[name] = histories[i];
+				});
+
+				return new Response(JSON.stringify({ latest, history: historyMap }), {
+					headers: { "Content-Type": "application/json" },
+				});
+			} catch (error: any) {
+				return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+			}
 		}
 
-		if (url.pathname === "/api/history") {
-			const itemName = url.searchParams.get("item");
-			if (!itemName) return new Response("Missing item parameter", { status: 400 });
-
-			const { results } = await env.spotprice_db.prepare(`
-				SELECT * FROM (
-					SELECT *, ROW_NUMBER() OVER (ORDER BY ref_time DESC) as seq
-					FROM spot_prices 
-					WHERE item_name = ?
-				) 
-				WHERE seq <= 30
-				ORDER BY ref_time ASC
-			`).bind(itemName).all();
+		// Backward compatibility or direct API access
+		if (url.pathname === "/api/latest") {
+			const results = await getLatestPrices(env);
 			return new Response(JSON.stringify(results), { headers: { "Content-Type": "application/json" } });
 		}
 
@@ -95,7 +84,7 @@ export default {
 	},
 };
 
-const ADMIN_ROUTES = new Set(["/debug-html", "/test-scrape", "/scrape-and-save"]);
+const ADMIN_ROUTES = new Set(["/debug-html", "/scrape-and-save"]);
 
 function isAdminRoute(pathname: string): boolean {
 	return ADMIN_ROUTES.has(pathname);
@@ -103,166 +92,4 @@ function isAdminRoute(pathname: string): boolean {
 
 function adminRoutesEnabled(env: Env): boolean {
 	return env.ENABLE_ADMIN_ROUTES === "true";
-}
-
-async function scrapePrices(): Promise<SpotPrice[]> {
-	const response = await fetch("https://www.dramexchange.com/", {
-		headers: {
-			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		},
-	});
-	if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-	const html = await response.text();
-	const results: SpotPrice[] = [];
-
-	const extractTime = (fullHtml: string, title: string) => {
-		const parts = fullHtml.split(title);
-		for (let i = 1; i < parts.length; i++) {
-			const segment = parts[i].substring(0, 1000); 
-			const match = segment.match(/class="tab_time">Last\s*Update\s*:\s*([^<\(]+)/i);
-			if (match) return match[1].replace(/\s+/g, " ").trim();
-		}
-		return "Unknown";
-	};
-	
-	const dramUpdateTime = extractTime(html, "DRAM Spot Price");
-	const waferUpdateTime = extractTime(html, "Wafer Spot Price");
-
-	const targets = [
-		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR5 16Gb \(2Gx8\) 4800\/5600.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "DDR4 16Gb (2Gx8) 3200", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR4 16Gb \(2Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "DDR4 8Gb (1Gx8) 3200", group: "DRAM", refTime: formatRefTime(dramUpdateTime), regex: /DDR4 8Gb \(1Gx8\) 3200.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-		{ name: "512Gb TLC", group: "NAND", refTime: formatRefTime(waferUpdateTime), regex: /512Gb TLC.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>([\d.]+)<\/td>.*?<td[^>]*>(.*?)<\/td>/s },
-	];
-
-	for (const t of targets) {
-		const m = html.match(t.regex);
-		if (m) {
-			results.push({
-				item_name: t.name, item_group: t.group,
-				session_high: parseFloat(m[3]), session_low: parseFloat(m[4]),
-				session_average: parseFloat(m[5]), session_change: m[6].replace(/<[^>]*>/g, "").trim(),
-				ref_time: t.refTime,
-			});
-		}
-	}
-	return results;
-}
-
-function formatRefTime(raw: string): string {
-	if (raw === "Unknown") return raw;
-	const months: Record<string, string> = {
-		'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-		'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-	};
-	const m = raw.match(/([A-Za-z]{3})\.?\s*(\d{1,2})\s+(\d{4})\s+(\d{1,2}:\d{2})/);
-	if (m) return `${m[3]}-${months[m[1]] || '01'}-${m[2].padStart(2, '0')} ${m[4]}`;
-	return raw;
-}
-
-async function savePricesToDB(env: Env, prices: SpotPrice[]) {
-	const stmt = env.spotprice_db.prepare(`
-		INSERT OR IGNORE INTO spot_prices 
-		(item_name, item_group, session_average, session_high, session_low, session_change, ref_time)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`);
-	const batch = prices.map(p => stmt.bind(p.item_name, p.item_group, p.session_average, p.session_high, p.session_low, p.session_change, p.ref_time));
-	const results = await env.spotprice_db.batch(batch);
-	return { rowsInserted: results.reduce((acc, r) => acc + (r.meta.changes || 0), 0) };
-}
-
-function renderDashboard() {
-  return `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpotPrice Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <style>
-        :root { --bg-color: #0f172a; --card-bg: #1e293b; --text-color: #f1f5f9; --primary: #38bdf8; --danger: #ef4444; --success: #22c55e; }
-        body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        header { margin-bottom: 30px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .card { background: var(--card-bg); padding: 15px; border-radius: 12px; border: 1px solid #334155; }
-        .card .title { font-size: 13px; color: #94a3b8; margin-bottom: 5px; }
-        .change.down { color: var(--danger); font-size: 13px; font-weight: 500; }
-        .change.up { color: var(--success); font-size: 13px; font-weight: 500; }
-        .chart-container { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid #334155; height: 350px; margin-bottom: 20px; }
-        footer { text-align: center; font-size: 11px; color: #64748b; margin-top: 40px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header><h1>SpotPrice Dashboard 📊</h1></header>
-        <div id="latest-grid" class="grid"></div>
-        <div class="chart-container"><div id="chart-nand" style="width:100%;height:100%;"></div></div>
-        <div class="chart-container"><div id="chart-8g" style="width:100%;height:100%;"></div></div>
-        <div class="chart-container"><div id="chart-16g" style="width:100%;height:100%;"></div></div>
-        <footer>DRAMeXchange | Cloudflare Workers + D1</footer>
-    </div>
-    <script>
-        const ITEMS = ["DDR5 16Gb (2Gx8) 4800/5600", "DDR4 16Gb (2Gx8) 3200", "DDR4 8Gb (1Gx8) 3200", "512Gb TLC"];
-        async function fetchData(name) { return await (await fetch('/api/history?item=' + encodeURIComponent(name))).json(); }
-        function createOption(title, series, xData) {
-            return {
-                title: { text: title, textStyle: { color: '#94a3b8', fontSize: 14 } },
-                backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
-                legend: { top: 0, right: 0, textStyle: { color: '#ccc' } },
-                xAxis: { type: 'category', data: xData, axisLabel: { color: '#64748b' } },
-                yAxis: { type: 'value', scale: true, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#334155' } } },
-                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                series
-            };
-        }
-        async function init() {
-            const latest = await (await fetch('/api/latest')).json();
-            const grid = document.getElementById('latest-grid');
-            latest.forEach(item => {
-                const div = document.createElement('div');
-                div.className = 'card';
-                const dispTime = item.ref_time.includes('-') ? item.ref_time.substring(5) : item.ref_time.split(' 202')[0];
-                div.innerHTML = '<div class="title">' + item.item_name + '</div>' +
-                    '<div style="display:flex; flex-direction:column; gap:4px;">' +
-                        '<div style="font-size:10px; color:#64748b;">AVG</div>' +
-                        '<div style="font-size:18px; font-weight:bold; color:var(--primary);">$' + item.session_average.toFixed(3) + '</div>' +
-                        '<div style="font-size:10px; color:#64748b; margin-top:4px;">HIGH</div>' +
-                        '<div style="font-size:14px; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:8px;">$' + item.session_high.toFixed(3) + '</div>' +
-                    '</div>' +
-                    '<div style="display:flex; justify-content:space-between; margin-top:12px;">' +
-                        '<div class="change ' + (item.session_change.includes('-')?'down':'up') + '">' + item.session_change + '</div>' +
-                        '<div style="font-size:9px; color:#475569;">' + dispTime + '</div>' +
-                    '</div>';
-                grid.appendChild(div);
-            });
-            const [d5_16, d4_16, d4_8, nand] = await Promise.all(ITEMS.map(fetchData));
-            const formatX = (d) => d.ref_time.includes('-') ? d.ref_time.substring(5) : d.ref_time.split(' 202')[0];
-
-            // 图表 1: NAND (最上方)
-            const c3 = echarts.init(document.getElementById('chart-nand'), 'dark');
-            c3.setOption(createOption('NAND Wafer Trend', [
-                { name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }
-            ], nand.map(formatX)));
-
-            // 图表 2: 8G DRAM (中间)
-            const c2 = echarts.init(document.getElementById('chart-8g'), 'dark');
-            c2.setOption(createOption('DRAM 8G Trend', [
-                { name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }
-            ], d4_8.map(formatX)));
-
-            // 图表 3: 16G DRAM (最下方)
-            const c1 = echarts.init(document.getElementById('chart-16g'), 'dark');
-            c1.setOption(createOption('DRAM 16G Trend', [
-                { name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) },
-                { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }
-            ], d5_16.map(formatX)));
-
-            window.addEventListener('resize', () => { [c1, c2, c3].forEach(c => c.resize()); });
-        }
-        init();
-    </script>
-</body>
-</html>
-  `;
 }
