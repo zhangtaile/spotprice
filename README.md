@@ -3,7 +3,7 @@
 基于 Cloudflare Workers + D1 数据库实现的内存/闪存现货价格监控系统。
 
 ## 功能特点
-- **自动化**: 每 12 小时自动抓取一次 DRAMeXchange 最新报价。
+- **自动化**: 每天自动抓取 4 次 DRAMeXchange 最新报价。
 - **持久化**: 数据存储在 Cloudflare D1 数据库，支持历史查询。
 - **可视化**: 内置现代化的 Dashboard，支持卡片展示及 ECharts 价格走势图。
 - **零成本**: 完全运行在 Cloudflare 免费额度内。
