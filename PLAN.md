@@ -50,7 +50,7 @@
     - [ ] **错误处理**: 若抓取失败（如网站改版），记录错误日志并返回友好提示。
 
 ### 阶段 3：数据持久化与定时任务 (Cron)
-- **目标**: 实现每 12 小时自动比对并存储，确保不存入重复数据。
+- **目标**: 实现每 6 小时自动比对并存储，确保不存入重复数据。
 - **细节步骤**:
     - [ ] **核心逻辑编写**:
         - 调用阶段 2 的 Scraper 获取数据。
@@ -58,7 +58,7 @@
           `INSERT OR IGNORE INTO spot_prices (item_name, ..., ref_time) VALUES (...)`。
         - 利用 D1 的唯一索引 `idx_item_time` 自动过滤已存在的记录。
     - [ ] **触发器配置**:
-        - 修改 `wrangler.jsonc`，添加 `[[triggers]] crons = ["0 */12 * * *"]`。
+        - 修改 `wrangler.jsonc`，添加 `[[triggers]] crons = ["0 */6 * * *"]`。
     - [ ] **Scheduled 事件处理**:
         - 在 `src/index.ts` 中实现 `export default { scheduled(event, env, ctx) { ... } }`。
     - [ ] **本地测试**: 使用 `npx wrangler dev --remote --dry-run` 模拟 Cron 触发，观察控制台输出。
@@ -96,5 +96,5 @@
 
 ## 4. 关键里程碑
 1. **M1 (Scraper OK)**: `/test-scrape` 能稳定返回当前价格。
-2. **M2 (Automation OK)**: 数据库中开始累积每 12 小时一条的记录。
+2. **M2 (Automation OK)**: 数据库中开始累积每 6 小时一条的记录。
 3. **M3 (Visualization OK)**: 能够在手机/电脑上通过 URL 看到漂亮的价格曲线。
