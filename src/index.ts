@@ -4,6 +4,7 @@
 
 export interface Env {
 	spotprice_db: D1Database;
+	ENABLE_ADMIN_ROUTES?: string;
 }
 
 export interface SpotPrice {
@@ -19,6 +20,9 @@ export interface SpotPrice {
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
+		if (isAdminRoute(url.pathname) && !adminRoutesEnabled(env)) {
+			return new Response("Not Found", { status: 404 });
+		}
 
 		if (url.pathname === "/debug-html") {
 			const response = await fetch("https://www.dramexchange.com/", {
@@ -90,6 +94,16 @@ export default {
 		);
 	},
 };
+
+const ADMIN_ROUTES = new Set(["/debug-html", "/test-scrape", "/scrape-and-save"]);
+
+function isAdminRoute(pathname: string): boolean {
+	return ADMIN_ROUTES.has(pathname);
+}
+
+function adminRoutesEnabled(env: Env): boolean {
+	return env.ENABLE_ADMIN_ROUTES === "true";
+}
 
 async function scrapePrices(): Promise<SpotPrice[]> {
 	const response = await fetch("https://www.dramexchange.com/", {

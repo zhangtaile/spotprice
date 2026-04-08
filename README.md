@@ -18,10 +18,11 @@
 1. 复制项目代码。
 2. 运行 `npm install` 安装依赖。
 3. 使用 `npx wrangler d1 create spotprice-db` 创建数据库并同步 `schema.sql`。
-4. 运行 `npm run deploy` 部署至 Cloudflare。
+4. 如需本地调试抓取路由，在项目根目录创建 `.dev.vars` 并设置 `ENABLE_ADMIN_ROUTES=true`。
+5. 运行 `npm run deploy` 部署至 Cloudflare。
 
 ## 路由说明
 - `/` : Dashboard 可视化界面
 - `/api/latest` : 获取最新报价 JSON
 - `/api/history?item=NAME` : 获取特定产品的历史价格
-- `/scrape-and-save` : 手动触发抓取并存库
+- `/debug-html`、`/test-scrape`、`/scrape-and-save` : 仅开发环境可用，生产默认返回 `404`
