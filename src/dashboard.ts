@@ -37,7 +37,7 @@ export function renderDashboard() {
                 backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
                 legend: { top: 0, right: 0, textStyle: { color: '#ccc' } },
                 xAxis: { type: 'category', data: xData, axisLabel: { color: '#64748b' } },
-                yAxis: { type: 'value', scale: true, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#334155' } } },
+                yAxis: { type: 'value', min: 0, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#334155' } } },
                 grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
                 series
             };
