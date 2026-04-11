@@ -75,11 +75,11 @@ export function renderDashboard() {
                 const perGbMarkup = pricePerGb === null
                     ? ''
                     : '<div style="font-size:10px; color:#64748b; margin-top:4px;">单GB价格</div>' +
-                      '<div style="font-size:13px; color:#cbd5e1;">' + formatUsd(pricePerGb) + ' / GB</div>';
+                      '<div style="font-size:18px; font-weight:bold; color:var(--primary);">' + formatUsd(pricePerGb) + ' / GB</div>';
                 div.innerHTML = '<div class="title">' + item.item_name + '</div>' +
                     '<div style="display:flex; flex-direction:column; gap:4px;">' +
                         '<div style="font-size:10px; color:#64748b;">AVG</div>' +
-                        '<div style="font-size:18px; font-weight:bold; color:var(--primary);">' + formatUsd(item.session_average) + '</div>' +
+                        '<div style="font-size:14px; color:#94a3b8;">' + formatUsd(item.session_average) + '</div>' +
                         perGbMarkup +
                         '<div style="font-size:10px; color:#64748b; margin-top:4px;">HIGH</div>' +
                         '<div style="font-size:14px; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:8px;">' + formatUsd(item.session_high) + '</div>' +
