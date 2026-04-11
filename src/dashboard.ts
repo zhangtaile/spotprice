@@ -31,13 +31,33 @@ export function renderDashboard() {
     </div>
     <script>
         const ITEMS = ["DDR5 16Gb (2Gx8) 4800/5600", "DDR4 16Gb (2Gx8) 3200", "DDR4 8Gb (1Gx8) 3200", "512Gb TLC"];
-        function createOption(title, series, xData) {
+        const ITEM_CAPACITY_GB = {
+            "DDR5 16Gb (2Gx8) 4800/5600": 2,
+            "DDR4 16Gb (2Gx8) 3200": 2,
+            "DDR4 8Gb (1Gx8) 3200": 1,
+            "512Gb TLC": 64
+        };
+        function formatUsd(value) {
+            return '$' + value.toFixed(3);
+        }
+        function getPricePerGb(itemName, price) {
+            const capacityGb = ITEM_CAPACITY_GB[itemName];
+            return typeof capacityGb === 'number' && capacityGb > 0 ? price / capacityGb : null;
+        }
+        function createOption(title, series, xData, yAxisName) {
             return {
                 title: { text: title, textStyle: { color: '#94a3b8', fontSize: 14 } },
                 backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
                 legend: { top: 0, right: 0, textStyle: { color: '#ccc' } },
                 xAxis: { type: 'category', data: xData, axisLabel: { color: '#64748b' } },
-                yAxis: { type: 'value', min: 0, axisLabel: { color: '#64748b' }, splitLine: { lineStyle: { color: '#334155' } } },
+                yAxis: {
+                    type: 'value',
+                    min: 0,
+                    name: yAxisName || '',
+                    nameTextStyle: { color: '#64748b' },
+                    axisLabel: { color: '#64748b' },
+                    splitLine: { lineStyle: { color: '#334155' } }
+                },
                 grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
                 series
             };
@@ -51,12 +71,18 @@ export function renderDashboard() {
                 const div = document.createElement('div');
                 div.className = 'card';
                 const dispTime = item.ref_time.includes('-') ? item.ref_time.substring(5) : item.ref_time.split(' 202')[0];
+                const pricePerGb = getPricePerGb(item.item_name, item.session_average);
+                const perGbMarkup = pricePerGb === null
+                    ? ''
+                    : '<div style="font-size:10px; color:#64748b; margin-top:4px;">单GB价格</div>' +
+                      '<div style="font-size:13px; color:#cbd5e1;">' + formatUsd(pricePerGb) + ' / GB</div>';
                 div.innerHTML = '<div class="title">' + item.item_name + '</div>' +
                     '<div style="display:flex; flex-direction:column; gap:4px;">' +
                         '<div style="font-size:10px; color:#64748b;">AVG</div>' +
-                        '<div style="font-size:18px; font-weight:bold; color:var(--primary);">$' + item.session_average.toFixed(3) + '</div>' +
+                        '<div style="font-size:18px; font-weight:bold; color:var(--primary);">' + formatUsd(item.session_average) + '</div>' +
+                        perGbMarkup +
                         '<div style="font-size:10px; color:#64748b; margin-top:4px;">HIGH</div>' +
-                        '<div style="font-size:14px; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:8px;">$' + item.session_high.toFixed(3) + '</div>' +
+                        '<div style="font-size:14px; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:8px;">' + formatUsd(item.session_high) + '</div>' +
                     '</div>' +
                     '<div style="display:flex; justify-content:space-between; margin-top:12px;">' +
                         '<div class="change ' + (item.session_change.includes('-')?'down':'up') + '">' + item.session_change + '</div>' +
@@ -71,8 +97,8 @@ export function renderDashboard() {
             const nand = history["512Gb TLC"] || [];
             const c3 = echarts.init(document.getElementById('chart-nand'), 'dark');
             c3.setOption(createOption('NAND Wafer Trend', [
-                { name: '512Gb TLC', type: 'line', smooth: true, data: nand.map(d => d.session_average), itemStyle: { color: '#f59e0b' } }
-            ], nand.map(formatX)));
+                { name: '512Gb TLC ($/GB)', type: 'line', smooth: true, data: nand.map(d => getPricePerGb("512Gb TLC", d.session_average)), itemStyle: { color: '#f59e0b' } }
+            ], nand.map(formatX), 'USD / GB'));
 
             // 图表 2: 8G DRAM (中间)
             const d4_8 = history["DDR4 8Gb (1Gx8) 3200"] || [];

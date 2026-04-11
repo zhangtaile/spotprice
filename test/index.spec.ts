@@ -51,6 +51,9 @@ describe("SpotPrice worker", () => {
 	it("serves the dashboard from the root route", async () => {
 		const response = await SELF.fetch("https://example.com");
 		expect(response.status).toBe(200);
-		expect(await response.text()).toContain("SpotPrice Dashboard");
+		const html = await response.text();
+		expect(html).toContain("SpotPrice Dashboard");
+		expect(html).toContain("单GB价格");
+		expect(html).toContain("USD / GB");
 	});
 });
