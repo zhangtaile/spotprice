@@ -1,4 +1,16 @@
-import { SpotPrice, Target } from "./types";
+import { ScrapeIssue, SpotPrice, Target } from "./types";
+
+const EXPECTED_PRICE_COUNT = 4;
+
+export class ScrapeValidationError extends Error {
+	issues: ScrapeIssue[];
+
+	constructor(message: string, issues: ScrapeIssue[]) {
+		super(message);
+		this.name = "ScrapeValidationError";
+		this.issues = issues;
+	}
+}
 
 export async function scrapePrices(): Promise<SpotPrice[]> {
 	const response = await fetch("https://www.dramexchange.com/", {
@@ -8,10 +20,17 @@ export async function scrapePrices(): Promise<SpotPrice[]> {
 	});
 	if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
 	const html = await response.text();
+	return parsePricesFromHtml(html);
+}
+
+export function parsePricesFromHtml(html: string): SpotPrice[] {
 	const results: SpotPrice[] = [];
+	const issues: ScrapeIssue[] = [];
 
 	const dramUpdateTime = extractTime(html, "DRAM Spot Price");
 	const waferUpdateTime = extractTime(html, "Wafer Spot Price");
+	validateRefTime("DRAM Spot Price", dramUpdateTime, issues);
+	validateRefTime("Wafer Spot Price", waferUpdateTime, issues);
 
 	const targets: Omit<Target, "refTime">[] = [
 		{ name: "DDR5 16Gb (2Gx8) 4800/5600", group: "DRAM", regex: createPriceRegex("DDR5 16Gb \\(2Gx8\\) 4800/5600") },
@@ -24,7 +43,7 @@ export async function scrapePrices(): Promise<SpotPrice[]> {
 		const refTime = t.group === "DRAM" ? dramUpdateTime : waferUpdateTime;
 		const m = html.match(t.regex);
 		if (m) {
-			results.push({
+			const price = {
 				item_name: t.name,
 				item_group: t.group,
 				session_high: parseFloat(m[3]),
@@ -32,11 +51,29 @@ export async function scrapePrices(): Promise<SpotPrice[]> {
 				session_average: parseFloat(m[5]),
 				session_change: m[6].replace(/<[^>]*>/g, "").trim(),
 				ref_time: formatRefTime(refTime),
-			});
+			};
+			validatePrice(price, issues);
+			results.push(price);
 		} else {
-			console.error(`Failed to match target: ${t.name}`);
+			issues.push({
+				code: "TARGET_NOT_FOUND",
+				message: `Failed to match target: ${t.name}`,
+				itemName: t.name,
+			});
 		}
 	}
+
+	if (results.length !== EXPECTED_PRICE_COUNT) {
+		issues.push({
+			code: "RESULT_COUNT_MISMATCH",
+			message: `Expected ${EXPECTED_PRICE_COUNT} items but parsed ${results.length}`,
+		});
+	}
+
+	if (issues.length > 0) {
+		throw new ScrapeValidationError("Scrape validation failed", issues);
+	}
+
 	return results;
 }
 
@@ -65,4 +102,52 @@ export function formatRefTime(raw: string): string {
 	const m = raw.match(/([A-Za-z]{3})\.?\s*(\d{1,2})\s+(\d{4})\s+(\d{1,2}:\d{2})/);
 	if (m) return `${m[3]}-${months[m[1]] || '01'}-${m[2].padStart(2, '0')} ${m[4]}`;
 	return raw;
+}
+
+function validateRefTime(label: string, rawRefTime: string, issues: ScrapeIssue[]) {
+	if (rawRefTime === "Unknown") {
+		issues.push({
+			code: "UNKNOWN_REF_TIME",
+			message: `${label} update time is Unknown`,
+		});
+		return;
+	}
+
+	const formattedRefTime = formatRefTime(rawRefTime);
+	if (!isValidRefTime(formattedRefTime)) {
+		issues.push({
+			code: "INVALID_REF_TIME",
+			message: `${label} update time has invalid format: ${formattedRefTime}`,
+		});
+	}
+}
+
+function validatePrice(price: SpotPrice, issues: ScrapeIssue[]) {
+	const numericFields = [
+		["session_high", price.session_high],
+		["session_low", price.session_low],
+		["session_average", price.session_average],
+	] as const;
+
+	for (const [fieldName, value] of numericFields) {
+		if (!Number.isFinite(value)) {
+			issues.push({
+				code: "INVALID_NUMBER",
+				message: `${price.item_name} has invalid ${fieldName}: ${String(value)}`,
+				itemName: price.item_name,
+			});
+		}
+	}
+
+	if (!isValidRefTime(price.ref_time)) {
+		issues.push({
+			code: "INVALID_REF_TIME",
+			message: `${price.item_name} has invalid ref_time: ${price.ref_time}`,
+			itemName: price.item_name,
+		});
+	}
+}
+
+function isValidRefTime(value: string): boolean {
+	return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value);
 }

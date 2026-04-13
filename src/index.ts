@@ -1,4 +1,5 @@
 import { Env, SpotPrice } from "./types";
+import { sendScrapeFailureAlert } from "./alerts";
 import { scrapePrices } from "./scraper";
 import { savePricesToDB, getLatestPrices, getPriceHistory } from "./db";
 import { renderDashboard } from "./dashboard";
@@ -32,7 +33,10 @@ export default {
 					headers: { "Content-Type": "application/json" },
 				});
 			} catch (error: any) {
-				return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({
+					error: error.message,
+					issues: Array.isArray(error?.issues) ? error.issues : undefined,
+				}), { status: 500, headers: { "Content-Type": "application/json" } });
 			}
 		}
 
@@ -44,7 +48,38 @@ export default {
 					headers: { "Content-Type": "application/json" },
 				});
 			} catch (error: any) {
-				return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+				return new Response(JSON.stringify({
+					error: error.message,
+					issues: Array.isArray(error?.issues) ? error.issues : undefined,
+				}), { status: 500, headers: { "Content-Type": "application/json" } });
+			}
+		}
+
+		if (url.pathname === "/insert_grep_error") {
+			if (request.method !== "POST") {
+				return new Response("Method Not Allowed", {
+					status: 405,
+					headers: {
+						"Allow": "POST",
+					},
+				});
+			}
+
+			try {
+				const issues = createInjectedGrepIssues();
+				await sendScrapeFailureAlert(env, issues, "manual:/insert_grep_error");
+				return new Response(JSON.stringify({
+					success: true,
+					message: "Injected scrape alert email sent.",
+					adminEmail: env.ADMIN_EMAIL ?? null,
+					issues,
+				}, null, 2), {
+					headers: { "Content-Type": "application/json" },
+				});
+			} catch (error: any) {
+				return new Response(JSON.stringify({
+					error: error.message,
+				}), { status: 500, headers: { "Content-Type": "application/json" } });
 			}
 		}
 
@@ -79,12 +114,12 @@ export default {
 
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		ctx.waitUntil(
-			scrapePrices().then(prices => savePricesToDB(env, prices))
+			runScheduledScrape(env)
 		);
 	},
 };
 
-const ADMIN_ROUTES = new Set(["/debug-html", "/scrape-and-save"]);
+const ADMIN_ROUTES = new Set(["/debug-html", "/scrape-and-save", "/insert_grep_error"]);
 
 function isAdminRoute(pathname: string): boolean {
 	return ADMIN_ROUTES.has(pathname);
@@ -92,4 +127,37 @@ function isAdminRoute(pathname: string): boolean {
 
 function adminRoutesEnabled(env: Env): boolean {
 	return env.ENABLE_ADMIN_ROUTES === "true";
+}
+
+async function runScheduledScrape(env: Env) {
+	try {
+		const prices = await scrapePrices();
+		await savePricesToDB(env, prices);
+	} catch (error: any) {
+		console.error("Scheduled scrape failed", error);
+
+		const issues = Array.isArray(error?.issues)
+			? error.issues
+			: [{ code: "SCRAPE_ERROR", message: error?.message || "Unknown scrape error" }];
+
+		try {
+			await sendScrapeFailureAlert(env, issues, "scheduled");
+		} catch (alertError) {
+			console.error("Failed to send scrape alert", alertError);
+		}
+	}
+}
+
+function createInjectedGrepIssues() {
+	return [
+		{
+			code: "INJECTED_GREP_ERROR",
+			message: "Manual error injection triggered from /insert_grep_error",
+		},
+		{
+			code: "TARGET_NOT_FOUND",
+			message: "Injected missing target for email alert verification: DDR5 16Gb (2Gx8) 4800/5600",
+			itemName: "DDR5 16Gb (2Gx8) 4800/5600",
+		},
+	];
 }

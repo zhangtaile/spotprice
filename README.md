@@ -19,7 +19,9 @@
 2. 运行 `npm install` 安装依赖。
 3. 使用 `npx wrangler d1 create spotprice-db` 创建数据库并同步 `schema.sql`。
 4. 如需本地调试抓取路由，在项目根目录创建 `.dev.vars` 并设置 `ENABLE_ADMIN_ROUTES=true`。
-5. 运行 `npm run deploy` 部署至 Cloudflare。
+5. 如需抓取失败邮件告警，配置 `ADMIN_EMAIL`、`ALERT_FROM_EMAIL`，并确保 Cloudflare Email Routing 已启用，目标地址已验证。
+6. 运行 `npm run cf-typegen` 更新 Worker 类型。
+7. 运行 `npm run deploy` 部署至 Cloudflare。
 
 ## 架构设计
 项目采用模块化设计，代码结构清晰：
@@ -34,3 +36,13 @@
 - `/api/dashboard` : **(推荐)** 一次性获取所有最新报价及历史走势 JSON
 - `/api/latest` : 获取各产品最新报价
 - `/debug-html`、`/test-scrape`、`/scrape-and-save` : 管理员工具路由（受 `ENABLE_ADMIN_ROUTES` 控制）
+- `POST /insert_grep_error` : 管理员测试路由，注入假错误并发送测试邮件（受 `ENABLE_ADMIN_ROUTES` 控制）
+
+## 告警邮件
+- 定时抓取时，如果出现 `Unknown` 更新时间、目标项缺失、数值解析失败或结果数量不完整，会视为本次抓取失败。
+- 失败时 Worker 会给 `ADMIN_EMAIL` 发送邮件，并停止写入 D1，避免脏数据入库。
+- 邮件发送依赖 Wrangler `send_email` 绑定和 Cloudflare Email Routing：
+  - `ALERT_FROM_EMAIL` 必须是已启用 Email Routing 的域名邮箱地址。
+  - `ADMIN_EMAIL` 必须是已验证的目标地址。
+- 管理路由 `/test-scrape`、`/scrape-and-save` 返回错误详情，但不会触发邮件告警。
+- 管理路由 `POST /insert_grep_error` 会直接注入一组假的抓取错误并发送测试邮件，用于验证邮箱链路是否正常。

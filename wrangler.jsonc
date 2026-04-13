@@ -15,8 +15,15 @@
 		"nodejs_compat"
 	],
 	"vars": {
-		"ENABLE_ADMIN_ROUTES": "false"
+		"ENABLE_ADMIN_ROUTES": "false",
+		"ADMIN_EMAIL": "",
+		"ALERT_FROM_EMAIL": ""
 	},
+	"send_email": [
+		{
+			"name": "ALERT_EMAIL"
+		}
+	],
 	"d1_databases": [
 		{
 			"binding": "spotprice_db",
