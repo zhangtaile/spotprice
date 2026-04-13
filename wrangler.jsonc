@@ -6,6 +6,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "spotprice",
 	"main": "src/index.ts",
+	"workers_dev": false,
 	"compatibility_date": "2026-04-06",
 	"observability": {
 		"enabled": true
