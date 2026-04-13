@@ -16,9 +16,7 @@
 		"nodejs_compat"
 	],
 	"vars": {
-		"ENABLE_ADMIN_ROUTES": "false",
-		"ADMIN_EMAIL": "",
-		"ALERT_FROM_EMAIL": ""
+		"ENABLE_ADMIN_ROUTES": "false"
 	},
 	"send_email": [
 		{
