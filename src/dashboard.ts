@@ -10,19 +10,33 @@ export function renderDashboard() {
         :root { --bg-color: #0f172a; --card-bg: #1e293b; --text-color: #f1f5f9; --primary: #38bdf8; --danger: #ef4444; --success: #22c55e; }
         body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; }
-        header { margin-bottom: 30px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        header { margin-bottom: 30px; border-bottom: 1px solid #334155; padding-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .card { background: var(--card-bg); padding: 15px; border-radius: 12px; border: 1px solid #334155; }
         .card .title { font-size: 13px; color: #94a3b8; margin-bottom: 5px; }
         .change.down { color: var(--danger); font-size: 13px; font-weight: 500; }
         .change.up { color: var(--success); font-size: 13px; font-weight: 500; }
         .chart-container { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid #334155; height: 350px; margin-bottom: 20px; }
+        select#time-range { background: var(--card-bg); color: var(--text-color); border: 1px solid #334155; border-radius: 8px; padding: 8px 16px; font-size: 14px; outline: none; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s; }
+        select#time-range:hover { border-color: var(--primary); }
+        select#time-range:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
         footer { text-align: center; font-size: 11px; color: #64748b; margin-top: 40px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <header><h1>SpotPrice Dashboard 📊</h1></header>
+        <header>
+            <h1 style="margin:0;">SpotPrice Dashboard 📊</h1>
+            <div>
+                <label for="time-range" style="color: #94a3b8; font-size: 14px; margin-right: 8px;">时间范围：</label>
+                <select id="time-range">
+                    <option value="30d">最近30天</option>
+                    <option value="6m">最近半年</option>
+                    <option value="1y">最近一年</option>
+                    <option value="all" selected>全部</option>
+                </select>
+            </div>
+        </header>
         <div id="latest-grid" class="grid"></div>
         <div class="chart-container"><div id="chart-nand" style="width:100%;height:100%;"></div></div>
         <div class="chart-container"><div id="chart-8g" style="width:100%;height:100%;"></div></div>
@@ -91,30 +105,72 @@ export function renderDashboard() {
                 grid.appendChild(div);
             });
 
-            const formatX = (d) => d.ref_time.includes('-') ? d.ref_time.substring(5) : d.ref_time.split(' 202')[0];
-
-            // 图表 1: NAND (最上方)
-            const nand = history["512Gb TLC"] || [];
+            // Initialize charts
             const c3 = echarts.init(document.getElementById('chart-nand'), 'dark');
-            c3.setOption(createOption('NAND Wafer Trend', [
-                { name: '512Gb TLC ($/GB)', type: 'line', smooth: true, data: nand.map(d => getPricePerGb("512Gb TLC", d.session_average)), itemStyle: { color: '#f59e0b' } }
-            ], nand.map(formatX), 'USD / GB'));
-
-            // 图表 2: 8G DRAM (中间)
-            const d4_8 = history["DDR4 8Gb (1Gx8) 3200"] || [];
             const c2 = echarts.init(document.getElementById('chart-8g'), 'dark');
-            c2.setOption(createOption('DRAM 8G Trend', [
-                { name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }
-            ], d4_8.map(formatX)));
-
-            // 图表 3: 16G DRAM (最下方)
-            const d5_16 = history["DDR5 16Gb (2Gx8) 4800/5600"] || [];
-            const d4_16 = history["DDR4 16Gb (2Gx8) 3200"] || [];
             const c1 = echarts.init(document.getElementById('chart-16g'), 'dark');
-            c1.setOption(createOption('DRAM 16G Trend', [
-                { name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) },
-                { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }
-            ], d5_16.map(formatX)));
+
+            function getCutoffDate(range) {
+                if (range === 'all') return null;
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                if (range === '30d') {
+                    return new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+                } else if (range === '6m') {
+                    return new Date(today.getFullYear(), today.getMonth() - 6, today.getDate());
+                } else if (range === '1y') {
+                    return new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+                }
+                return null;
+            }
+
+            function parseLocalDate(dateStr) {
+                const parts = dateStr.split('-');
+                return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+            }
+
+            const formatX = (d, range) => {
+                if (!d.ref_time.includes('-')) return d.ref_time.split(' 202')[0];
+                const datePart = d.ref_time.split(' ')[0];
+                if (range === '30d') {
+                    return datePart.substring(5); // MM-DD
+                }
+                return datePart; // YYYY-MM-DD
+            };
+
+            function updateCharts() {
+                const range = document.getElementById('time-range').value;
+                const cutoff = getCutoffDate(range);
+
+                const filterData = (dataList) => {
+                    if (!cutoff) return dataList;
+                    return dataList.filter(d => {
+                        const datePart = d.ref_time.split(' ')[0];
+                        return parseLocalDate(datePart) >= cutoff;
+                    });
+                };
+
+                const nand = filterData(history["512Gb TLC"] || []);
+                const d4_8 = filterData(history["DDR4 8Gb (1Gx8) 3200"] || []);
+                const d5_16 = filterData(history["DDR5 16Gb (2Gx8) 4800/5600"] || []);
+                const d4_16 = filterData(history["DDR4 16Gb (2Gx8) 3200"] || []);
+
+                c3.setOption(createOption('NAND Wafer Trend', [
+                    { name: '512Gb TLC ($/GB)', type: 'line', smooth: true, data: nand.map(d => getPricePerGb("512Gb TLC", d.session_average)), itemStyle: { color: '#f59e0b' } }
+                ], nand.map(d => formatX(d, range)), 'USD / GB'));
+
+                c2.setOption(createOption('DRAM 8G Trend', [
+                    { name: 'DDR4 8G', type: 'line', smooth: true, data: d4_8.map(d => d.session_average), itemStyle: { color: '#22c55e' } }
+                ], d4_8.map(d => formatX(d, range))));
+
+                c1.setOption(createOption('DRAM 16G Trend', [
+                    { name: 'DDR5 16G', type: 'line', smooth: true, data: d5_16.map(d => d.session_average) },
+                    { name: 'DDR4 16G', type: 'line', smooth: true, data: d4_16.map(d => d.session_average) }
+                ], d5_16.map(d => formatX(d, range))));
+            }
+
+            document.getElementById('time-range').addEventListener('change', updateCharts);
+            updateCharts();
 
             window.addEventListener('resize', () => { [c1, c2, c3].forEach(c => c.resize()); });
         }
