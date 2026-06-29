@@ -35,7 +35,8 @@
 - `/` : Dashboard 可视化界面
 - `/api/dashboard` : **(推荐)** 一次性获取所有最新报价及历史走势 JSON
 - `/api/latest` : 获取各产品最新报价
-- `/debug-html`、`/test-scrape`、`/scrape-and-save` : 管理员工具路由（受 `ENABLE_ADMIN_ROUTES` 控制）
+- `/test-scrape` : 抓取调试路由，直接返回抓取结果或错误详情
+- `/debug-html`、`/scrape-and-save` : 管理员工具路由（受 `ENABLE_ADMIN_ROUTES` 控制）
 - `POST /insert_grep_error` : 管理员测试路由，注入假错误并发送测试邮件（受 `ENABLE_ADMIN_ROUTES` 控制）
 
 ## 告警邮件
@@ -44,5 +45,5 @@
 - 邮件发送依赖 Wrangler `send_email` 绑定和 Cloudflare Email Routing：
   - `ALERT_FROM_EMAIL` 必须是已启用 Email Routing 的域名邮箱地址。
   - `ADMIN_EMAIL` 必须是已验证的目标地址。
-- 管理路由 `/test-scrape`、`/scrape-and-save` 返回错误详情，但不会触发邮件告警。
+- `/test-scrape` 和管理路由 `/scrape-and-save` 返回错误详情，但不会触发邮件告警。
 - 管理路由 `POST /insert_grep_error` 会直接注入一组假的抓取错误并发送测试邮件，用于验证邮箱链路是否正常。
