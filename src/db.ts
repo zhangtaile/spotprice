@@ -21,15 +21,24 @@ export async function getLatestPrices(env: Env): Promise<SpotPrice[]> {
 	return results as unknown as SpotPrice[];
 }
 
-export async function getPriceHistory(env: Env, itemName: string, limit: number = 30): Promise<SpotPrice[]> {
+export async function getPriceHistory(env: Env, itemName: string, limit?: number): Promise<SpotPrice[]> {
+	if (limit !== undefined) {
+		const { results } = await env.spotprice_db.prepare(`
+			SELECT * FROM (
+				SELECT *, ROW_NUMBER() OVER (ORDER BY ref_time DESC) as seq
+				FROM spot_prices 
+				WHERE item_name = ?
+			) 
+			WHERE seq <= ?
+			ORDER BY ref_time ASC
+		`).bind(itemName, limit).all();
+		return results as unknown as SpotPrice[];
+	}
+
 	const { results } = await env.spotprice_db.prepare(`
-		SELECT * FROM (
-			SELECT *, ROW_NUMBER() OVER (ORDER BY ref_time DESC) as seq
-			FROM spot_prices 
-			WHERE item_name = ?
-		) 
-		WHERE seq <= ?
+		SELECT * FROM spot_prices 
+		WHERE item_name = ?
 		ORDER BY ref_time ASC
-	`).bind(itemName, limit).all();
+	`).bind(itemName).all();
 	return results as unknown as SpotPrice[];
 }

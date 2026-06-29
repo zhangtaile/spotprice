@@ -5,7 +5,7 @@ import {
 	waitOnExecutionContext,
 	SELF,
 } from "cloudflare:test";
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { beforeAll, afterEach, describe, it, expect, vi } from "vitest";
 import worker from "../src/index";
 import type { Env } from "../src/types";
 
@@ -14,6 +14,15 @@ import type { Env } from "../src/types";
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe("SpotPrice worker", () => {
+	beforeAll(async () => {
+		await env.spotprice_db.exec(
+			"CREATE TABLE IF NOT EXISTS spot_prices (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT NOT NULL, item_group TEXT NOT NULL, session_average REAL NOT NULL, session_high REAL, session_low REAL, session_change TEXT, ref_time TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);"
+		);
+		await env.spotprice_db.exec(
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_item_time ON spot_prices (item_name, ref_time);"
+		);
+	});
+
 	afterEach(() => {
 		vi.restoreAllMocks();
 	});
